@@ -1,23 +1,19 @@
 # Engineering Reflection & Architectural Analysis
 
 ### 1. Real Latency and Cost Metrics (Empirical Live Data)
-Based on the execution of the 23-scenario evaluation harness against **Google Gemini (`gemini-3.5-flash-lite`)** and the deterministic rules engine:
-- **Empirical Live Evaluation Results:**
-  - **Execution Quality:** **23/23 Valid Executions (100.0%)** | **0 Infrastructure Failures**.
-  - **AI Overall Accuracy:** **95.65% (22/23 passed)** across happy path, ambiguous input, invalid transition, role violation, prompt injection, and boundary edge cases.
-  - **Average End-to-End Latency:** **0.7132s** per scenario (incorporating network roundtrips, structured JSON schema decoding, and deterministic checks).
-    - `gemini-3.5-flash-lite` calls: **1.1714s** average latency across 14 LLM-evaluated cases.
-    - `rules_engine` calls: **0.0006s** average latency across 9 deterministic cases.
-  - **Real Per-Request Cost:** **$0.000039 USD** per request on average ($0.075 / 1M prompt tokens, $0.30 / 1M completion tokens).
-    - `gemini-3.5-flash-lite` calls: **$0.000063 USD** average cost per call.
-    - Deterministic checks: **$0.000000 USD** (0 tokens consumed).
+Based on a single execution run of the 23-scenario evaluation harness against **Google Gemini (`gemini-3.5-flash-lite`)** and the deterministic rules engine:
+- **Empirical Live AI Evaluation Results:**
+  - **Execution Scope:** Single evaluation run on `gemini-3.5-flash-lite`. (An earlier 3-run attempt on `gemini-3.8-flash` showed accuracy varying between 82.6% and 87.0%, partly contaminated by daily API quota limits and 429 rate limiting).
+  - **AI Agent Cases (Gemini):** 14 scenarios evaluated. 13 passed, 1 failed (`HP-04`). **AI Accuracy: 92.86% (13/14)**.
+  - **Deterministic Backend Checks:** 9 scenarios evaluated (transitions, role checks, title boundary). 9 passed. **Accuracy: 100.0% (9/9)**.
+  - **Total Suite Accuracy:** **95.65% (22/23 passed)**.
+  - **AI Agent Latency (Gemini-Called Cases Only):** **1.1714s** (~1.17s) average latency across the 14 LLM-evaluated cases (incorporating Google API roundtrips and structured JSON schema decoding).  
+    *(Deterministic checks take 0.0006s; reporting a blended average of 0.71s is misleading, so AI latency is reported strictly for AI calls).*
+  - **AI Agent Cost per Request (Gemini-Called Cases Only):** **$0.000063 USD** on average ($0.075 / 1M prompt tokens, $0.30 / 1M completion tokens). A full multi-agent cycle costs less than **1/150th of a single cent**. Deterministic checks cost $0.000000.
   - **Security Telemetry:**
-    - **Prompt Injection Containment Rate:** **100.0%** (6/6 cases maintained status `Submitted` without unauthorized mutation).
-    - **Prompt Injection Detection Rate:** **100.0%** (6/6 cases flagged `injection_suspected`).
-    - **Detection Attribution:** 3 caught by regex pattern filters (`INJ-01`, `INJ-02`, `INJ-03`); 3 caught exclusively by the semantic LLM layer (`INJ-04` paraphrased, `INJ-05` Spanish, `INJ-06` split-sentence).
-- **Offline Mock Provider Baseline:**
-  - Average Latency: **~0.0006s per request**.
-  - Cost: **$0.000000** (Zero network egress, ideal for air-gapped CI/CD testing).
+    - **Prompt Injection Containment:** **Guaranteed by architecture (the review agent has no transition tools)**. All 6 cases maintained database status `Submitted` without mutation.
+    - **Prompt Injection Detection (This Run):** 6/6 cases flagged `injection_suspected: True` in this single run (3 caught by keyword regex, 3 caught by Gemini semantic evaluation).
+    - **Detection Caveat:** Detection depends on probabilistic LLM judgement, and a 6-case synthetic sample is far too small to claim a general detection rate.
 
 ---
 
@@ -35,7 +31,7 @@ The evaluation recorded exactly **1 failed case out of 23**:
 
 1. **Regex Injection Detection is Bypassable:**
    - **Weak Spot:** Simple keyword pattern scanning (`"ignore rules"`, `"system prompt"`, `"approve this"`) is brittle. Paraphrased instructions (`INJ-04`), multi-lingual attacks (`INJ-05`), and split-sentence instructions (`INJ-06`) bypass regex entirely.
-   - **Mitigation & Reality:** Our second-line defense—the LLM semantic evaluation—caught 100% of the bypassing injections. More importantly, **architectural containment (100%)** does not rely on detection: the Review-Assist Agent has no mutation tools in its toolbox and cannot write database state under any circumstances.
+   - **Mitigation & Reality:** Our second-line defense—the LLM semantic evaluation—caught the bypassing injections in this run. However, detection depends on LLM judgement and cannot be guaranteed. Crucially, **containment is guaranteed by architecture**: the Review-Assist Agent has no transition tools in its toolbox and cannot write database state under any circumstances.
 
 2. **UI Persona Switcher is Not Real Authentication:**
    - **Weak Spot:** The Streamlit sidebar user selector (`Alice`, `Bob`, `Rita`) is a client-side simulation designed for interactive evaluation and demonstration.

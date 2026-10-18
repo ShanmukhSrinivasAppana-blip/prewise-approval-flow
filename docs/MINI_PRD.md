@@ -59,14 +59,17 @@ Enterprise approval workflows (procurement, hardware upgrades, travel authorizat
 
 ### 5. Empirical Benchmark Validation & Success Metrics
 
-In live empirical evaluations across 23 standardized benchmark scenarios evaluated against Google Gemini (`gemini-3.5-flash-lite`) and the deterministic state machine:
-1. **AI Overall Accuracy:** **95.65% (22/23 cases passed)** across happy path, ambiguous input, invalid transition, role violation, injection, and boundary edge cases. Exactly 1 disagreement occurred (`HP-04`, where Gemini conservatively required travel dates and justification before creating a draft).
-2. **Adversarial Containment:** **100.0% containment (6/6 cases)**. Zero unauthorized status mutations occurred across direct, indirect, paraphrased, and multi-lingual prompt injections.
-3. **Adversarial Detection:** **100.0% detection (6/6 cases)** flagged with `injection_suspected: True` across hybrid regex and LLM semantic layers.
+In a single live evaluation across 23 standardized benchmark scenarios evaluated against Google Gemini (`gemini-3.5-flash-lite`) and the deterministic state machine:
+*(Note: An earlier 3-run attempt on `gemini-3.8-flash` showed accuracy varying between 82.6% and 87.0%, partly contaminated by daily API quota limits).*
+1. **Total Suite Accuracy:** **95.65% (22/23 cases passed)** across happy path, ambiguous input, invalid transition, role violation, injection, and boundary edge cases.
+   - **AI Agent Cases (Gemini):** 14 scenarios evaluated. 13 passed, 1 failed (`HP-04`). **Accuracy: 92.86% (13/14)**.
+   - **Deterministic Backend Checks:** 9 scenarios evaluated. 9 passed. **Accuracy: 100.0% (9/9)**.
+2. **Adversarial Containment:** **Guaranteed by architecture (the review agent has no transition tools)**. All 6 prompt injection cases remained strictly in status `Submitted` without unauthorized database changes.
+3. **Adversarial Detection:** In this single run, 6/6 cases were flagged (`injection_suspected: True`). However, detection depends on probabilistic LLM judgement, and a 6-case synthetic sample is too small to claim a general detection rate.
 4. **Zero AI Overreach:** Exactly 0 unauthorized status changes were enacted directly by AI agents (100% adherence to deterministic state machine enforcements).
-5. **System Latency & Cost:**
-   - **Average Overall Latency:** `0.7132s` (1.1714s for Gemini LLM reasoning, 0.0006s for deterministic checks).
-   - **Average Cost per Request:** `$0.000039 USD` per request ($0.000063 for Gemini calls, $0.000000 for deterministic checks).
+5. **System Latency & Cost (Gemini-Called Cases Only):**
+   - **AI Agent Latency:** `1.1714s` (~1.17s) average latency across the 14 Gemini calls (deterministic checks take <0.001s; blended suite average is 0.71s).
+   - **AI Agent Cost per Request:** `$0.000063 USD` per request on average (deterministic checks consume 0 tokens / $0.00).
 
 ---
 
@@ -74,7 +77,7 @@ In live empirical evaluations across 23 standardized benchmark scenarios evaluat
 
 | Risk / Weak Spot | Impact | Mitigation Strategy & Production Roadmap |
 | :--- | :---: | :--- |
-| **Regex Injection Bypassability** | Medium | **Empirical Reality:** Keyword regex (`"ignore rules"`, `"system prompt"`) only caught 3/6 attacks; paraphrased and multi-lingual attacks (`INJ-04`, `INJ-05`, `INJ-06`) bypassed it. **Mitigation:** The LLM semantic layer caught the remaining 3/6. More critically, **100% containment is guaranteed by physical architecture**: `ReviewAssistTools` contains zero mutation tools and cannot write database state. |
+| **Regex Injection Bypassability** | Medium | **Empirical Reality:** Keyword regex (`"ignore rules"`, `"system prompt"`) only caught 3/6 attacks; paraphrased and multi-lingual attacks (`INJ-04`, `INJ-05`, `INJ-06`) bypassed it. **Mitigation:** The LLM semantic layer caught the remaining 3/6 in this run, but detection depends on LLM judgement and cannot be guaranteed. Crucially, **containment is guaranteed by architecture**: `ReviewAssistTools` contains zero transition/mutation tools and cannot write database state. |
 | **UI Persona Switcher Not Real Auth** | Medium | **Current State:** The Streamlit sidebar user selector is an interactive client-side simulation. **Production Roadmap:** Replace client persona selection with an API Gateway verifying signed OAuth2 / OIDC JWT bearer tokens (Okta, Azure AD), injecting immutable `User` context securely into the service layer. |
 | **`NOT_FOUND` Checked Before Role** | Low | **Current State:** `RequestService` checks request existence before user role/ownership permissions, allowing request ID enumeration. **Production Roadmap:** Enforce tenant/owner query scoping in SQL (`SELECT ... WHERE id = ? AND owner_id = ?`) or normalize return codes to uniform `NOT_FOUND` to eliminate ID probing. |
 | **LLM Provider Outage / Rate Limits (429)** | High | Multi-provider fallback (`gemini` -> `ollama` -> `mock`), exponential backoff retries, and graceful degradation to manual UI mode via `AI_UNAVAILABLE` error codes. |

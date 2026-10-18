@@ -54,23 +54,29 @@ python -m eval.run_eval --resume
 
 ## 📊 Live Evaluation Benchmark Results
 
-The evaluation harness was executed against **Google Gemini (`gemini-3.5-flash-lite`)** and the deterministic rules engine across 23 standardized test cases:
+The evaluation harness was executed in a single run against **Google Gemini (`gemini-3.5-flash-lite`)** and the deterministic rules engine across 23 standardized test cases:
+*(Note: An earlier 3-run attempt on `gemini-3.8-flash` showed accuracy varying between 82.6% and 87.0%, partly contaminated by daily API quota limits).*
 
 | Metric | Result | Details |
 | :--- | :---: | :--- |
-| **Execution Quality** | **100.0% (23/23)** | 23 valid real executions, **0** infrastructure failures |
-| **AI Overall Accuracy** | **95.65% (22/23)** | 22 passed, 1 genuine AI failure (`HP-04`) |
-| **Average End-to-End Latency** | **0.7132s** | 1.1714s for Gemini calls, 0.0006s for deterministic checks |
-| **Average Cost per Request** | **$0.000039 USD** | $0.000063 for Gemini calls, $0.000000 for deterministic checks |
-| **Prompt Injection Containment** | **100.0% (6/6)** | Status strictly preserved as `Submitted` (guaranteed by architecture) |
-| **Prompt Injection Detection** | **100.0% (6/6)** | 3 caught by regex pattern scanning, 3 caught by LLM semantic evaluation |
+| **Execution Quality** | **100.0% (23/23)** | 23 valid real executions, **0** infrastructure failures in this run |
+| **Total Suite Accuracy** | **95.65% (22/23)** | 22 passed, 1 genuine AI failure (`HP-04`) |
+| **AI Agent Latency (Gemini Cases)** | **1.1714s (~1.17s)** | Reported strictly for the 14 Gemini calls (blended suite average including deterministic checks is 0.71s) |
+| **AI Agent Cost per Request** | **$0.000063 USD** | Reported strictly for Gemini calls ($0.075 / 1M input, $0.30 / 1M output; deterministic checks cost $0) |
+| **Prompt Injection Containment** | **Guaranteed by Architecture** | **The review agent has no transition tools**; all 6 cases strictly preserved status `Submitted` |
+| **Prompt Injection Detection (This Run)** | **6/6 Flagged** | 3 caught by regex pattern scanning, 3 caught by Gemini semantic evaluation |
 
-### Model Performance Comparison
+> [!WARNING]
+> **Detection Sample Size Caveat:** While all 6 prompt injections were flagged in this run, detection depends on probabilistic LLM judgement. A 6-case synthetic sample is far too small to claim a general detection rate. Containment, however, is deterministic and mathematically guaranteed by tool isolation.
 
-| Model | Provider | Cases Evaluated | Passed | Accuracy (%) | Avg Latency | Avg Cost ($) |
+### Component Execution Breakdown
+
+*(Note: The deterministic backend is Python business logic, not an AI model).*
+
+| Component | Technology | Cases Evaluated | Passed | Accuracy (%) | Avg Latency | Avg Cost ($) |
 | :--- | :--- | :---: | :---: | :---: | :---: | :---: |
-| `gemini-3.5-flash-lite` | `gemini` | 14 | 13 | **92.9%** | 1.1714s | $0.000063 |
-| `rules_engine` | `deterministic` | 9 | 9 | **100.0%** | 0.0006s | $0.000000 |
+| **AI Agents** | `gemini-3.5-flash-lite` | 14 | 13 | **92.9%** | **1.1714s** | **$0.000063** |
+| **Deterministic Backend** | Python `rules_engine` | 9 | 9 | **100.0%** | **0.0006s** | **$0.000000** |
 
 ### Genuine AI Failure Analysis (`HP-04`)
 - **Case `HP-04` (Customer conference attendance):** The synthetic benchmark expected immediate draft creation (`ready_to_create: True`) based on itemized costs ($1,099 ticket + $751 hotel). Gemini conservatively judged that travel reimbursement requests require specific travel dates and learning objectives before draft creation, setting `ready_to_create: False` and asking follow-up questions.

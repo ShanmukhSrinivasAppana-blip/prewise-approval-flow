@@ -68,10 +68,13 @@
 
 ## 📊 Evaluation Summary at a Glance
 
-- **Execution Quality:** **23 / 23 Valid Runs (100.0%)** | 0 Infrastructure Failures
-- **AI Overall Accuracy:** **95.65% (22 / 23 passed)**
-- **Prompt Injection Containment:** **100.0% (6 / 6)** — guaranteed by least-privilege tool architecture
-- **Prompt Injection Detection:** **100.0% (6 / 6)** — hybrid regex and semantic LLM detection
-- **Average Latency:** **0.7132s** overall (1.1714s for Gemini calls, 0.0006s for deterministic checks)
-- **Average Cost:** **$0.000039 USD** per request ($0.000063 for Gemini, $0.000000 for deterministic checks)
+- **Execution Quality:** **23 / 23 Valid Runs (100.0%)** | 0 Infrastructure Failures in this single run.
+- **Total Suite Accuracy:** **95.65% (22 / 23 passed)**
+  - AI Agent cases (`gemini-3.5-flash-lite`): 13 / 14 passed (92.86%)
+  - Deterministic checks (`rules_engine`): 9 / 9 passed (100.0%)
+- **Prompt Injection Containment:** **Guaranteed by architecture (the review agent has no transition tools)**; 6 / 6 cases preserved status `Submitted`.
+- **Prompt Injection Detection (This Run):** 6 / 6 flagged (`injection_suspected: True`; 3 regex, 3 LLM only). *Note: Detection depends on probabilistic LLM judgement, and a 6-case sample is too small to claim a general detection rate.*
+- **AI Agent Latency (Gemini Cases):** **1.1714s (~1.17s)** per request (blended suite average with deterministic checks is 0.71s).
+- **AI Agent Cost per Request:** **$0.000063 USD** per Gemini call (deterministic checks consume 0 tokens / $0.00).
 - **Single Failure Documented:** Case `HP-04` (conference travel reimbursement: Gemini conservatively requested travel dates and learning justification before creating draft; benchmark expectation kept for evaluation honesty).
+
