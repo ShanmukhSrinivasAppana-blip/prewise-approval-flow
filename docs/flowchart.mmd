@@ -1,0 +1,68 @@
+flowchart TD
+    subgraph Users["Human Actors"]
+        Creator["Creator (Alice / Bob)"]
+        Reviewer["Reviewer (Rita)"]
+    end
+
+    subgraph UI["Streamlit Presentation Layer (app/ui.py)"]
+        CreatorView["Creator Workspace\n(Intake, Drafts, Quality Check)"]
+        ReviewerView["Reviewer Workspace\n(Pending Queue, AI Recs, Decision Checkpoint)"]
+    end
+
+    subgraph Orchestration["Central Orchestrator (app/orchestrator.py)"]
+        GuardrailScanner["Guardrail Scanner (app/guardrails.py)\n- Regex Injection Filter\n- Breakout Sanitizer"]
+        OrchestratorCore["Orchestrator Engine\n- Coordinates Agents\n- Enforces Human Checkpoints\n- Handles Fallbacks"]
+    end
+
+    subgraph Agents["AI Advisory Layer (Pure Structured LLM)"]
+        IntakeAgent["Intake Agent (app/agents.py)\nExtracts Title, Description,\nMissing Fields, Follow-ups"]
+        QualityAgent["Quality-Check Agent (app/agents.py)\nClarity (1-5), Completeness (1-5),\nSuggestions, Risks"]
+        ReviewAgent["Review-Assist Agent (app/agents.py)\nSummary, Risk (1-5), Priority,\nRecommendation, Injection Flag"]
+    end
+
+    subgraph Toolboxes["Least-Privilege Toolboxes (app/tools.py)"]
+        IntakeTools["IntakeTools\nAllowed: [create_request, get_request]\nBlocked: [submit, transition]"]
+        ReviewTools["ReviewAssistTools\nAllowed: [get_request ONLY]\nBlocked: [ALL MUTATIONS & TRANSITIONS]"]
+    end
+
+    subgraph DeterministicCore["Deterministic State Machine (Single Validator)"]
+        Service["RequestService (app/service.py)\nAtomic UPDATE ... WHERE status = expected"]
+        Rules["RULES Registry (app/rules.py)\nRole, Status, Owner, Valid Transitions"]
+        SQLiteDB[(SQLite Database\nrequests, request_history)]
+    end
+
+    subgraph Observability["Audit & Notification Subsystems"]
+        AuditLog[(agent_audit_log table\nAll agent calls, tokens, latency, status)]
+        NotifManager[(notifications table\nConsole alerts & persistent feed)]
+        EscalationDaemon["Escalation Daemon\nFlags requests pending > 24h SLA"]
+    end
+
+    %% User to UI
+    Creator -->|"Conversational Input / Actions"| CreatorView
+    Reviewer -->|"Approve / Reject + Reason"| ReviewerView
+
+    %% UI to Orchestration
+    CreatorView -->|"handle_intake, check_quality, submit, cancel"| GuardrailScanner
+    ReviewerView -->|"assist_review, human_decision"| GuardrailScanner
+    GuardrailScanner --> OrchestratorCore
+
+    %% Orchestrator to Agents
+    OrchestratorCore -->|"Wrapped &lt;request_data&gt;"| IntakeAgent
+    OrchestratorCore -->|"Wrapped &lt;request_data&gt;"| QualityAgent
+    OrchestratorCore -->|"Wrapped &lt;request_data&gt;"| ReviewAgent
+
+    %% Agents & Toolboxes
+    IntakeAgent -.->|"Read & Create Draft"| IntakeTools
+    ReviewAgent -.->|"Read Only"| ReviewTools
+
+    %% Orchestrator to State Machine
+    OrchestratorCore -->|"transition_request(actor, id, action)"| Service
+    Service --> Rules
+    Service --> SQLiteDB
+
+    %% Observability taps
+    OrchestratorCore -->|"Log every event"| AuditLog
+    OrchestratorCore -->|"Dispatch alerts"| NotifManager
+    Service -->|"Status change events"| AuditLog
+    EscalationDaemon -.->|"Poll Submitted requests"| Service
+    EscalationDaemon -->|"SLA Breach Alert"| NotifManager

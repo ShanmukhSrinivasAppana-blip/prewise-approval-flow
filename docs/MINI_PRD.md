@@ -57,21 +57,28 @@ Enterprise approval workflows (procurement, hardware upgrades, travel authorizat
 
 ---
 
-### 5. Success Metrics
+### 5. Empirical Benchmark Validation & Success Metrics
 
-1. **Process Velocity:** 60% reduction in average time-to-decision for standard corporate requests.
-2. **First-Time Completeness Rate:** Over 85% of requests created via the Intake Agent contain all mandatory business fields.
-3. **Adversarial Protection:** 100% interception of direct and indirect prompt-injection attempts before reaching decision-makers.
-4. **Zero AI Overreach:** 0 unauthorized status changes enacted directly by an AI agent (100% adherence to the deterministic state machine).
-5. **System Availability & Latency:** Sub-second deterministic backend response; under 2.5s end-to-end latency for structured LLM reasoning.
+In live empirical evaluations across 23 standardized benchmark scenarios evaluated against Google Gemini (`gemini-3.5-flash-lite`) and the deterministic state machine:
+1. **AI Overall Accuracy:** **95.65% (22/23 cases passed)** across happy path, ambiguous input, invalid transition, role violation, injection, and boundary edge cases. Exactly 1 disagreement occurred (`HP-04`, where Gemini conservatively required travel dates and justification before creating a draft).
+2. **Adversarial Containment:** **100.0% containment (6/6 cases)**. Zero unauthorized status mutations occurred across direct, indirect, paraphrased, and multi-lingual prompt injections.
+3. **Adversarial Detection:** **100.0% detection (6/6 cases)** flagged with `injection_suspected: True` across hybrid regex and LLM semantic layers.
+4. **Zero AI Overreach:** Exactly 0 unauthorized status changes were enacted directly by AI agents (100% adherence to deterministic state machine enforcements).
+5. **System Latency & Cost:**
+   - **Average Overall Latency:** `0.7132s` (1.1714s for Gemini LLM reasoning, 0.0006s for deterministic checks).
+   - **Average Cost per Request:** `$0.000039 USD` per request ($0.000063 for Gemini calls, $0.000000 for deterministic checks).
 
 ---
 
-### 6. Risks and Mitigations
+### 6. Risks, Mitigations & Documented Architectural Weak Spots
 
-| Risk | Impact | Mitigation Strategy |
+| Risk / Weak Spot | Impact | Mitigation Strategy & Production Roadmap |
 | :--- | :---: | :--- |
-| **Prompt Injection Attack** | Critical | Dual-pass regex scanning (at intake and pre-review), input sanitization stripping `</request_data>`, and physical omission of mutation tools from `ReviewAssistTools`. |
-| **LLM Provider Outage / 429** | High | Multi-provider fallback (`gemini` -> `ollama` -> `mock`), exponential backoff retries, and graceful degradation to manual UI mode via `AI_UNAVAILABLE` error codes. |
+| **Regex Injection Bypassability** | Medium | **Empirical Reality:** Keyword regex (`"ignore rules"`, `"system prompt"`) only caught 3/6 attacks; paraphrased and multi-lingual attacks (`INJ-04`, `INJ-05`, `INJ-06`) bypassed it. **Mitigation:** The LLM semantic layer caught the remaining 3/6. More critically, **100% containment is guaranteed by physical architecture**: `ReviewAssistTools` contains zero mutation tools and cannot write database state. |
+| **UI Persona Switcher Not Real Auth** | Medium | **Current State:** The Streamlit sidebar user selector is an interactive client-side simulation. **Production Roadmap:** Replace client persona selection with an API Gateway verifying signed OAuth2 / OIDC JWT bearer tokens (Okta, Azure AD), injecting immutable `User` context securely into the service layer. |
+| **`NOT_FOUND` Checked Before Role** | Low | **Current State:** `RequestService` checks request existence before user role/ownership permissions, allowing request ID enumeration. **Production Roadmap:** Enforce tenant/owner query scoping in SQL (`SELECT ... WHERE id = ? AND owner_id = ?`) or normalize return codes to uniform `NOT_FOUND` to eliminate ID probing. |
+| **LLM Provider Outage / Rate Limits (429)** | High | Multi-provider fallback (`gemini` -> `ollama` -> `mock`), exponential backoff retries, and graceful degradation to manual UI mode via `AI_UNAVAILABLE` error codes. |
 | **Schema Hallucinations** | Medium | Strict Pydantic validators (`Literal` types for recommendation/priority, range checks `ge=1, le=5` for scores) reject malformed payloads automatically. |
 | **State Inconsistency / Race Conditions** | High | Atomic conditional updates (`UPDATE requests SET status = ? WHERE id = ? AND status = ?`) detect concurrent changes and return `CONFLICT`. |
+| **Conservative Travel Intake (`HP-04`)** | Low | LLM conservatively asked clarifying questions for conference travel rather than immediately creating a draft. Solved in production via fine-tuned few-shot prompt examples tailored to company travel policy. |
+

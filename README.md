@@ -1,11 +1,46 @@
 # Prewise Request Approval Flow: Agentic AI Workflow Automation
 
 [![Tests](https://img.shields.io/badge/Unit%20Tests-59%20Passed-success)](tests/)
-[![Evaluation](https://img.shields.io/badge/Eval%20Accuracy-100%25%20(19%2F19)-blue)](eval/EVAL_REPORT.md)
+[![Evaluation](https://img.shields.io/badge/Eval%20Accuracy-95.65%25%20(22%2F23)-blue)](eval/EVAL_REPORT.md)
+[![Execution Quality](https://img.shields.io/badge/Valid%20Runs-100%25%20(23%2F23)-brightgreen)](eval/EVAL_REPORT.md)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue)](https://www.python.org/)
 [![UI](https://img.shields.io/badge/UI-Streamlit-FF4B4B)](https://streamlit.io/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+> **Demo video:** `<add link>`
 
 A production-grade, modular, and hardened Agentic AI workflow automation system for enterprise request approvals.
+
+---
+
+## ⚡ Quick Start
+
+```powershell
+# 1. Clone & enter project folder
+git clone <repo-url>
+cd "prewise project"
+
+# 2. Create and activate virtual environment
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+
+# 3. Install dependencies
+pip install --upgrade pip
+pip install -r requirements.txt
+
+# 4. Configure environment
+cp .env.example .env
+# Edit .env to add your GEMINI_API_KEY (or keep LLM_PROVIDER=mock for 100% offline testing)
+
+# 5. Run the full unit test suite (59 tests)
+python -m unittest discover -s tests -p "test_*.py" -v
+
+# 6. Launch the interactive Streamlit UI
+streamlit run app/ui.py
+
+# 7. Run the standardized evaluation benchmark (23 cases)
+python -m eval.run_eval --resume
+```
 
 ---
 
@@ -17,101 +52,54 @@ A production-grade, modular, and hardened Agentic AI workflow automation system 
 
 ---
 
+## 📊 Live Evaluation Benchmark Results
+
+The evaluation harness was executed against **Google Gemini (`gemini-3.5-flash-lite`)** and the deterministic rules engine across 23 standardized test cases:
+
+| Metric | Result | Details |
+| :--- | :---: | :--- |
+| **Execution Quality** | **100.0% (23/23)** | 23 valid real executions, **0** infrastructure failures |
+| **AI Overall Accuracy** | **95.65% (22/23)** | 22 passed, 1 genuine AI failure (`HP-04`) |
+| **Average End-to-End Latency** | **0.7132s** | 1.1714s for Gemini calls, 0.0006s for deterministic checks |
+| **Average Cost per Request** | **$0.000039 USD** | $0.000063 for Gemini calls, $0.000000 for deterministic checks |
+| **Prompt Injection Containment** | **100.0% (6/6)** | Status strictly preserved as `Submitted` (guaranteed by architecture) |
+| **Prompt Injection Detection** | **100.0% (6/6)** | 3 caught by regex pattern scanning, 3 caught by LLM semantic evaluation |
+
+### Model Performance Comparison
+
+| Model | Provider | Cases Evaluated | Passed | Accuracy (%) | Avg Latency | Avg Cost ($) |
+| :--- | :--- | :---: | :---: | :---: | :---: | :---: |
+| `gemini-3.5-flash-lite` | `gemini` | 14 | 13 | **92.9%** | 1.1714s | $0.000063 |
+| `rules_engine` | `deterministic` | 9 | 9 | **100.0%** | 0.0006s | $0.000000 |
+
+### Genuine AI Failure Analysis (`HP-04`)
+- **Case `HP-04` (Customer conference attendance):** The synthetic benchmark expected immediate draft creation (`ready_to_create: True`) based on itemized costs ($1,099 ticket + $751 hotel). Gemini conservatively judged that travel reimbursement requests require specific travel dates and learning objectives before draft creation, setting `ready_to_create: False` and asking follow-up questions.
+- **Evaluation Honesty:** The benchmark expectation was preserved as-is. In contrast, **`HP-05`** (complete workstation equipment request with cost center) passed with 100% accuracy.
+
+---
+
 ## 🏗️ Stack Justification
 
 | Technology | Selection | Engineering Justification |
 | :--- | :--- | :--- |
 | **Orchestration** | Plain Python | Zero bloated third-party abstractions (no LangChain / CrewAI). Complete transparency, explicit execution paths, and zero hidden prompt loops. |
-| **Primary LLM** | Google Gemini (`google-genai` SDK) | Native JSON schema enforcement (`response_schema`), industry-leading price/performance, and robust structured reasoning via Gemini 2.5 Flash. |
+| **Primary LLM** | Google Gemini (`google-genai` SDK) | Native JSON schema enforcement (`response_schema`), industry-leading price/performance, and robust structured reasoning via Gemini Flash. |
 | **Fallback LLMs** | Ollama & Built-in Mock | High-availability resilience: runs locally via Ollama or 100% offline via the canned Mock provider for CI/CD and air-gapped unit tests. |
 | **Output Validation** | Pydantic v2 | Guarantees strict type safety, literal enum validation, and boundary enforcement (1-5 scores) to eliminate hallucinated fields. |
 | **Database** | SQLite3 | ACID-compliant, zero-dependency, serverless relational database with atomic conditional updates for race-condition prevention. |
 | **Web Presentation** | Streamlit | Rapid interactive prototyping with reactive state management, persona switching, and real-time audit trail rendering. |
-| **Test Framework** | Python `unittest` | Built-in standard library testing with zero extra dependencies; runs fast, deterministic, reproducible test suites. |
+| **Test Framework** | Python `unittest` | Built-in standard library testing with zero extra dependencies; runs fast, deterministic, reproducible test suites (59/59 passing). |
 | **Config & Secrets** | `python-dotenv` | Twelve-factor app compliance: secrets (`GEMINI_API_KEY`) and models are loaded strictly from `.env` and never committed. |
 
 ---
 
 ## 📌 Documented Assumptions
 
-The following core business rules and architectural assumptions govern this implementation:
 1. **Cancellation Boundaries:** A Creator may cancel a request in either `Draft` or `Submitted` status. Once a request reaches `Approved`, it **cannot** be cancelled.
 2. **Terminal States:** `Approved`, `Rejected`, and `Cancelled` are strictly terminal statuses. No further transitions can originate from them.
 3. **Ownership Enforced:** Only the specific Creator who created a request can `submit` or `cancel` it (`NOT_OWNER` error code otherwise).
 4. **Draft Confidentiality:** Reviewers **cannot** see `Draft` requests (`NOT_VISIBLE` error code). Reviewers are only granted access once a request is formally `Submitted`.
 5. **Mandatory Human-in-the-Loop:** Approvals and rejections can only be enacted by a human Reviewer with an explicit textual justification.
-
----
-
-## 🚀 Quick Start Guide
-
-### 1. Prerequisites
-- Python 3.10+ (tested on Python 3.12)
-- Git
-
-### 2. Environment Setup
-```powershell
-# Clone the repository
-git clone <repo-url>
-cd "prewise project"
-
-# Create and activate virtual environment
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-
-# Install dependencies
-pip install --upgrade pip
-pip install -r requirements.txt
-```
-
-### 3. Configure Environment Variables
-Copy the `.env.example` file to `.env`:
-```powershell
-cp .env.example .env
-```
-To test offline without an API key, leave `LLM_PROVIDER=mock`:
-```env
-LLM_PROVIDER=mock
-LLM_FALLBACK_PROVIDER=mock
-GEMINI_API_KEY=
-GEMINI_MODEL=gemini-2.5-flash
-DB_PATH=data/approval_system.db
-ESCALATION_THRESHOLD_HOURS=24
-```
-To use live Google Gemini, provide your key:
-```env
-LLM_PROVIDER=gemini
-LLM_FALLBACK_PROVIDER=mock
-GEMINI_API_KEY=your_actual_gemini_api_key_here
-GEMINI_MODEL=gemini-2.5-flash
-```
-
----
-
-## 🧪 Running Tests & Verification
-
-### 1. Unit Test Suite (59 Tests)
-Run the complete automated test suite across all 5 test modules:
-```powershell
-.\.venv\Scripts\python.exe -m unittest discover -s tests -p "test_*.py" -v
-```
-
-### 2. Streamlit Web Application
-Launch the interactive web UI:
-```powershell
-.\.venv\Scripts\streamlit.exe run app/ui.py
-```
-Open [http://localhost:8501](http://localhost:8501) in your browser. Use the sidebar dropdown to switch between personas:
-- **Alice (Creator):** Draft and submit requests.
-- **Bob (Creator):** Experience separate creator workspace.
-- **Rita (Reviewer):** View pending approvals and inspect AI suggestions.
-
-### 3. Evaluation Harness (19 Synthetic Cases)
-Run the 19-scenario synthetic evaluation benchmark:
-```powershell
-.\.venv\Scripts\python.exe -m eval.run_eval
-```
-Review the generated results in [eval/results.json](file:///c:/Users/shanm/OneDrive/Desktop/prewise%20project/eval/results.json) and [eval/EVAL_REPORT.md](file:///c:/Users/shanm/OneDrive/Desktop/prewise%20project/eval/EVAL_REPORT.md).
 
 ---
 
@@ -129,6 +117,23 @@ Review the generated results in [eval/results.json](file:///c:/Users/shanm/OneDr
    - Any attempted closing tag `</request_data>` is stripped to prevent boundary breakout.
 5. **Output Leakage Filtering:**
    - Scans model responses for sensitive internal system instructions and redacts them if detected.
+
+---
+
+## ⚠️ Known Architectural Weak Spots & Honest Limitations
+
+1. **Regex Injection Detection is Bypassable:**
+   - **Weak Spot:** Static keyword scanning only caught 3 of 6 injection attacks (`INJ-01`, `INJ-02`, `INJ-03`). Paraphrased instructions (`INJ-04`), multi-lingual attacks (`INJ-05`), and split-sentence attacks (`INJ-06`) bypass regex pattern filters.
+   - **Mitigation:** The secondary LLM semantic evaluation caught the remaining 3 attacks. Most importantly, **100% containment is guaranteed by physical architecture**: the Review-Assist Agent has no mutation tools and cannot alter database status.
+2. **UI Persona Switcher is Not Real Authentication:**
+   - **Weak Spot:** The Streamlit sidebar user selector (`Alice`, `Bob`, `Rita`) is a client-side simulation designed for interactive evaluation and demonstration.
+   - **Production Requirement:** In production, identity must be validated at the API boundary via signed OAuth2 / OIDC JWT bearer tokens (Okta, Azure AD), securely injecting authenticated `User` context.
+3. **`NOT_FOUND` Precedes Role Validation:**
+   - **Weak Spot:** In `RequestService`, request existence is checked before the calling user's role or ownership permissions.
+   - **Information Disclosure Vector:** A caller querying nonexistent ID `999` receives `NOT_FOUND`, but querying Alice's private draft `1` receives `NOT_VISIBLE`. This allows an unauthorized user to probe whether specific request IDs exist.
+   - **Production Requirement:** Enforce authorization within the database query itself (`WHERE id = ? AND owner_id = ?`) or return a uniform `NOT_FOUND` to prevent ID enumeration.
+4. **Database Scale:** SQLite provides excellent single-node performance and ACID guarantees via file locks, but multi-region distributed deployments should migrate to PostgreSQL with row-level locks.
+5. **Escalation Daemon:** The SLA escalation daemon currently operates via API/button trigger; in production, run it as a background cron job (e.g., Celery beat or AWS EventBridge).
 
 ---
 
@@ -150,12 +155,12 @@ Review the generated results in [eval/results.json](file:///c:/Users/shanm/OneDr
 │   └── ui.py              # Streamlit interactive multi-persona web application
 ├── docs/
 │   ├── architecture.md    # Mermaid architecture flowchart and state diagram
-│   ├── MINI_PRD.md        # Product Requirements Document (2 pages)
+│   ├── MINI_PRD.md        # Product Requirements Document (PRD)
 │   ├── REFLECTION.md      # Latency/cost metrics, boundaries of trust, roadmap
-│   ├── DEMO_SCRIPT.md     # 4-minute walkthrough demonstration script
+│   ├── DEMO_SCRIPT.md     # Walkthrough demonstration script
 │   └── STUDY_GUIDE.md     # File-by-file explanations and 15 interview defense Q&As
 ├── eval/
-│   ├── cases.py           # 19 synthetic evaluation cases (happy, ambiguous, injections, edge cases)
+│   ├── cases.py           # 23 synthetic evaluation cases (happy, ambiguous, injections, edge cases)
 │   ├── run_eval.py        # Evaluation runner with token cost and latency telemetry
 │   ├── results.json       # Raw evaluation metrics output
 │   └── EVAL_REPORT.md     # Formatted markdown evaluation report
@@ -169,13 +174,7 @@ Review the generated results in [eval/results.json](file:///c:/Users/shanm/OneDr
 ├── requirements.txt       # Project dependencies
 ├── .env.example           # Configuration template
 ├── .gitignore             # Secrets, cache, and database exclusions
+├── LICENSE                # MIT License
+├── SUBMISSION.md          # Submission checklist and artifact index
 └── README.md              # Project documentation and guide
 ```
-
----
-
-## ⚠️ Known Limitations & Future Roadmap
-
-1. **Authentication:** The Streamlit interface uses a sidebar persona switcher for demonstration convenience. In production, this must be replaced with OAuth2/OIDC JWT bearer tokens.
-2. **Database Scale:** SQLite provides excellent single-node performance and ACID guarantees via file locks, but multi-region distributed deployments should migrate to PostgreSQL.
-3. **Escalation Trigger:** The SLA escalation daemon currently operates via API/button trigger; in production, run it as a background cron job (e.g., Celery beat or AWS EventBridge).

@@ -113,6 +113,7 @@ class Orchestrator:
                     "code": "AI_UNAVAILABLE",
                     "message": "AI Intake service is temporarily unavailable. You may fill out the request form manually.",
                 },
+                "exception": err,
             }
 
         intake_data = llm_res.data
@@ -140,6 +141,7 @@ class Orchestrator:
                 "request": req,
                 "intake": intake_data.model_dump(),
                 "injection_detected": injection_flag,
+                "llm_result": llm_res,
             }
 
         return {
@@ -147,6 +149,7 @@ class Orchestrator:
             "draft_created": False,
             "intake": intake_data.model_dump(),
             "injection_detected": injection_flag,
+            "llm_result": llm_res,
         }
 
     def check_quality(self, actor: User, request_id: str) -> Dict[str, Any]:
@@ -268,6 +271,7 @@ class Orchestrator:
         try:
             llm_res = self.review_agent.run(sanitized_req)
             rec_dict = llm_res.data.model_dump()
+            llm_injection_flag = bool(rec_dict.get("injection_suspected", False))
 
             # Defense in depth: Force injection_suspected flag if guardrail matched
             if injection_flag:
@@ -294,6 +298,9 @@ class Orchestrator:
                 "ok": True,
                 "recommendation": rec_dict,
                 "request": req,
+                "regex_caught": injection_flag,
+                "llm_caught": llm_injection_flag,
+                "llm_result": llm_res,
             }
 
             if injection_flag or rec_dict.get("injection_suspected"):
@@ -321,6 +328,7 @@ class Orchestrator:
                     "code": "AI_UNAVAILABLE",
                     "message": "AI Review Assistant is temporarily unavailable. Please review the request details manually.",
                 },
+                "exception": err,
             }
 
     def human_decision(

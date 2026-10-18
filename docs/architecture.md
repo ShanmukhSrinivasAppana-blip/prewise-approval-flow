@@ -8,6 +8,8 @@ This document details the architectural topology, data flow, security boundaries
 
 The diagram below illustrates the separation between untrusted AI agents, least-privilege toolboxes, the central orchestrator, and the deterministic SQLite state machine.
 
+*High-Resolution Export:* [architecture_flowchart.svg](architecture_flowchart.svg)
+
 ```mermaid
 flowchart TD
     subgraph Users["Human Actors"]
@@ -49,34 +51,34 @@ flowchart TD
     end
 
     %% User to UI
-    Creator -->|Conversational Input / Actions| CreatorView
-    Reviewer -->|Approve / Reject + Reason| ReviewerView
+    Creator -->|"Conversational Input / Actions"| CreatorView
+    Reviewer -->|"Approve / Reject + Reason"| ReviewerView
 
     %% UI to Orchestration
-    CreatorView -->|handle_intake, check_quality, submit, cancel| GuardrailScanner
-    ReviewerView -->|assist_review, human_decision| GuardrailScanner
+    CreatorView -->|"handle_intake, check_quality, submit, cancel"| GuardrailScanner
+    ReviewerView -->|"assist_review, human_decision"| GuardrailScanner
     GuardrailScanner --> OrchestratorCore
 
     %% Orchestrator to Agents
-    OrchestratorCore -->|Wrapped <request_data>| IntakeAgent
-    OrchestratorCore -->|Wrapped <request_data>| QualityAgent
-    OrchestratorCore -->|Wrapped <request_data>| ReviewAgent
+    OrchestratorCore -->|"Wrapped &lt;request_data&gt;"| IntakeAgent
+    OrchestratorCore -->|"Wrapped &lt;request_data&gt;"| QualityAgent
+    OrchestratorCore -->|"Wrapped &lt;request_data&gt;"| ReviewAgent
 
     %% Agents & Toolboxes
-    IntakeAgent -.->|Read & Create Draft| IntakeTools
-    ReviewAgent -.->|Read Only| ReviewTools
+    IntakeAgent -.->|"Read & Create Draft"| IntakeTools
+    ReviewAgent -.->|"Read Only"| ReviewTools
 
     %% Orchestrator to State Machine
-    OrchestratorCore -->|transition_request(actor, id, action)| Service
+    OrchestratorCore -->|"transition_request(actor, id, action)"| Service
     Service --> Rules
     Service --> SQLiteDB
 
     %% Observability taps
-    OrchestratorCore -->|Log every event| AuditLog
-    OrchestratorCore -->|Dispatch alerts| NotifManager
-    Service -->|Status change events| AuditLog
-    EscalationDaemon -.->|Poll Submitted requests| Service
-    EscalationDaemon -->|SLA Breach Alert| NotifManager
+    OrchestratorCore -->|"Log every event"| AuditLog
+    OrchestratorCore -->|"Dispatch alerts"| NotifManager
+    Service -->|"Status change events"| AuditLog
+    EscalationDaemon -.->|"Poll Submitted requests"| Service
+    EscalationDaemon -->|"SLA Breach Alert"| NotifManager
 ```
 
 ---
@@ -84,6 +86,8 @@ flowchart TD
 ## 2. Request Lifecycle State Diagram
 
 All lifecycle state transitions pass exclusively through `RequestService.transition_request()`. No direct database writes or agent overrides are permitted.
+
+*High-Resolution Export:* [state_lifecycle.svg](state_lifecycle.svg)
 
 ```mermaid
 stateDiagram-v2

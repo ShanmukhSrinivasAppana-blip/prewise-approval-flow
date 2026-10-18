@@ -4,12 +4,12 @@ Provides structured JSON output with automatic retries, backoff, schema validati
 and seamless fallback between providers.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import json
 import logging
 import os
 import time
-from typing import Any, Callable, Dict, List, Optional, Type, TypeVar
+from typing import Any, Callable, Dict, List, Optional, Tuple, Type, TypeVar
 from pydantic import BaseModel, ValidationError
 
 # Load environment variables if python-dotenv is present
@@ -29,6 +29,31 @@ class LLMUnavailableError(Exception):
     pass
 
 
+class QuotaExhaustedError(LLMUnavailableError):
+    """Raised when an LLM provider's daily/hard rate quota is exhausted."""
+    def __init__(self, message: str, retry_after: Optional[str] = None):
+        super().__init__(message)
+        self.retry_after = retry_after
+
+
+def is_daily_quota_error(exc: Exception) -> Tuple[bool, Optional[str]]:
+    """Determine if an exception represents hard daily quota exhaustion."""
+    msg = str(exc)
+    msg_lower = msg.lower()
+    retry_match = None
+    if "please retry in" in msg_lower:
+        idx = msg_lower.find("please retry in")
+        retry_match = msg[idx:idx + 50].split(".")[0].strip()
+
+    is_quota = (
+        "quota exceeded" in msg_lower
+        or "free_tier_requests" in msg_lower
+        or "generaterequestsperday" in msg_lower
+        or ("429" in msg_lower and "retry in" in msg_lower and any(unit in msg_lower for unit in ["h", "d", "hour", "day"]))
+    )
+    return is_quota, retry_match
+
+
 @dataclass
 class LLMResult:
     """Standardized result returned by call_llm_json."""
@@ -37,6 +62,9 @@ class LLMResult:
     tokens_out: int
     latency_s: float
     provider: str
+    model: str = ""
+    fallback_used: bool = False
+    errors_encountered: List[Dict[str, Any]] = field(default_factory=list)
     raw_response: str = ""
 
 
@@ -240,13 +268,13 @@ def _invoke_single_provider(
     system_prompt: str,
     user_content: str,
     schema: Type[T],
-) -> tuple[T, int, int, str]:
-    """Invoke a single provider once, validate with Pydantic, and return (data, in, out, raw)."""
+) -> tuple[T, int, int, str, str]:
+    """Invoke a single provider once, validate with Pydantic, and return (data, in, out, raw, model)."""
     p = provider.lower().strip()
 
     if p == "gemini":
         api_key = os.getenv("GEMINI_API_KEY", "").strip()
-        model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash").strip()
+        model = os.getenv("GEMINI_MODEL", "gemini-3.8-flash").strip()
         if not api_key:
             raise ValueError("GEMINI_API_KEY is not set or empty in environment.")
         raw_text, tokens_in, tokens_out = _call_gemini_raw(
@@ -261,6 +289,7 @@ def _invoke_single_provider(
         )
 
     elif p == "mock":
+        model = "mock"
         raw_text, tokens_in, tokens_out = _call_mock_raw(system_prompt, user_content, schema)
 
     else:
@@ -268,7 +297,7 @@ def _invoke_single_provider(
 
     # Validate against schema
     validated_data = schema.model_validate_json(raw_text)
-    return validated_data, tokens_in, tokens_out, raw_text
+    return validated_data, tokens_in, tokens_out, raw_text, model
 
 
 def call_llm_json(
@@ -278,12 +307,14 @@ def call_llm_json(
     max_retries: int = 3,
     backoff_factor: float = 0.5,
     sleep_fn: Callable[[float], None] = time.sleep,
+    allow_fallback: Optional[bool] = None,
 ) -> LLMResult:
     """Call LLM with guaranteed structured output adhering to schema.
 
     Enforces:
     - Retries up to max_retries with exponential backoff on API errors or validation failures.
-    - Fallback provider invocation if primary provider fails.
+    - Fallback provider invocation if primary provider fails (unless allow_fallback is False).
+    - Raises QuotaExhaustedError if daily/hard API quota is exceeded.
     - Raises LLMUnavailableError if all attempts and fallbacks fail.
 
     Args:
@@ -293,24 +324,31 @@ def call_llm_json(
         max_retries: Number of retry attempts per provider.
         backoff_factor: Exponential backoff base (seconds).
         sleep_fn: Hookable sleep function (for deterministic fast tests).
+        allow_fallback: If False, prevents falling back to secondary providers.
 
     Returns:
         LLMResult containing validated Pydantic object, token counts, and latency.
     """
     primary_provider = os.getenv("LLM_PROVIDER", "mock").strip().lower()
-    fallback_provider = os.getenv("LLM_FALLBACK_PROVIDER", "").strip().lower()
+
+    if allow_fallback is None:
+        no_fb = os.getenv("EVAL_NO_FALLBACK", "0").strip().lower() in ("1", "true", "yes")
+        allow_fallback = not no_fb
+
+    fallback_provider = os.getenv("LLM_FALLBACK_PROVIDER", "").strip().lower() if allow_fallback else ""
 
     providers_to_try = [primary_provider]
     if fallback_provider:
         providers_to_try.append(fallback_provider)
 
     last_error: Optional[Exception] = None
+    errors_encountered: List[Dict[str, Any]] = []
 
-    for provider in providers_to_try:
+    for provider_idx, provider in enumerate(providers_to_try):
         for attempt in range(1, max_retries + 1):
             start_time = time.perf_counter()
             try:
-                data, tokens_in, tokens_out, raw_text = _invoke_single_provider(
+                data, tokens_in, tokens_out, raw_text, model = _invoke_single_provider(
                     provider=provider,
                     system_prompt=system_prompt,
                     user_content=user_content,
@@ -323,10 +361,21 @@ def call_llm_json(
                     tokens_out=tokens_out,
                     latency_s=latency,
                     provider=provider,
+                    model=model,
+                    fallback_used=(provider_idx > 0),
+                    errors_encountered=errors_encountered,
                     raw_response=raw_text,
                 )
             except Exception as exc:
                 last_error = exc
+                is_quota, retry_info = is_daily_quota_error(exc)
+                errors_encountered.append({
+                    "provider": provider,
+                    "attempt": attempt,
+                    "error": str(exc),
+                    "is_daily_quota": is_quota,
+                    "retry_info": retry_info,
+                })
                 logger.warning(
                     "LLM call failed (provider=%s, attempt=%d/%d): %s",
                     provider,
@@ -334,6 +383,13 @@ def call_llm_json(
                     max_retries,
                     exc,
                 )
+
+                if is_quota and not allow_fallback:
+                    raise QuotaExhaustedError(
+                        f"Daily API quota exhausted on provider '{provider}': {exc}",
+                        retry_after=retry_info,
+                    ) from exc
+
                 if attempt < max_retries:
                     err_msg = str(exc).upper()
                     if "429" in err_msg or "RESOURCE_EXHAUSTED" in err_msg:
@@ -343,6 +399,13 @@ def call_llm_json(
                     else:
                         sleep_time = backoff_factor * (2 ** (attempt - 1))
                     sleep_fn(sleep_time)
+
+    if last_error and is_daily_quota_error(last_error)[0]:
+        _, retry_info = is_daily_quota_error(last_error)
+        raise QuotaExhaustedError(
+            f"Daily API quota exhausted for providers ({providers_to_try}): {last_error}",
+            retry_after=retry_info,
+        ) from last_error
 
     raise LLMUnavailableError(
         f"All LLM providers ({providers_to_try}) failed after {max_retries} attempts each. "

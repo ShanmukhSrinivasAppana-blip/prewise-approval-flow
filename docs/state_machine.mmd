@@ -1,0 +1,28 @@
+stateDiagram-v2
+    [*] --> Draft : Creator initiates request\n(create_request)
+
+    Draft --> Submitted : Creator submits request\n(submit / owner only)
+    Draft --> Cancelled : Creator cancels draft\n(cancel / owner only)
+
+    Submitted --> Approved : Reviewer approves with required reason\n(approve / Reviewer only)
+    Submitted --> Rejected : Reviewer rejects with required reason\n(reject / Reviewer only)
+    Submitted --> Cancelled : Creator cancels pending request\n(cancel / owner only)
+
+    Approved --> [*] : Terminal state\n(Cannot be cancelled or modified)
+    Rejected --> [*] : Terminal state\n(Cannot transition further)
+    Cancelled --> [*] : Terminal state\n(Cannot transition further)
+
+    note right of Draft
+        Visibility: Visible ONLY to owning Creator.
+        Reviewers receive NOT_VISIBLE error.
+    end note
+
+    note right of Submitted
+        Visibility: Visible to Creator & Reviewers.
+        Eligible for AI Review Assistance and SLA Escalation.
+    end note
+
+    note right of Approved
+        Explicit Business Rule:
+        An Approved request CANNOT be cancelled.
+    end note
