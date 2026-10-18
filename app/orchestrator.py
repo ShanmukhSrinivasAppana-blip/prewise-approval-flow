@@ -14,6 +14,7 @@ from typing import Any, Dict, List, Optional
 
 from app.agents import IntakeAgent, QualityCheckAgent, ReviewAssistAgent
 from app.audit import AuditLogger
+from app.guardrails import filter_prompt_leakage, sanitize_input, scan_for_injection
 from app.llm import LLMUnavailableError
 from app.notifications import NotificationManager
 from app.rules import Role, Status
@@ -68,8 +69,23 @@ class Orchestrator:
                 },
             }
 
+        # Guardrail check on Creator input
+        injection_flag, pattern = scan_for_injection(user_text)
+        if injection_flag:
+            self.audit.log_event(
+                actor_id=actor.id,
+                actor_role=actor.role.value,
+                agent="Guardrails",
+                input_data=user_text,
+                output_data={"injection_detected": True, "pattern": pattern},
+                status="FLAGGED_INJECTION",
+                reason=f"Prompt injection pattern detected: '{pattern}'",
+            )
+
+        sanitized_input = sanitize_input(user_text)
+
         try:
-            llm_res = self.intake_agent.run(user_text)
+            llm_res = self.intake_agent.run(sanitized_input)
             self.audit.log_event(
                 actor_id=actor.id,
                 actor_role=actor.role.value,
@@ -123,12 +139,14 @@ class Orchestrator:
                 "draft_created": True,
                 "request": req,
                 "intake": intake_data.model_dump(),
+                "injection_detected": injection_flag,
             }
 
         return {
             "ok": True,
             "draft_created": False,
             "intake": intake_data.model_dump(),
+            "injection_detected": injection_flag,
         }
 
     def check_quality(self, actor: User, request_id: str) -> Dict[str, Any]:
@@ -228,25 +246,64 @@ class Orchestrator:
                 },
             }
 
+        # Guardrail check on request content before passing to review agent
+        combined_text = f"{req.get('title', '')} {req.get('description', '')}"
+        injection_flag, pattern = scan_for_injection(combined_text)
+        if injection_flag:
+            self.audit.log_event(
+                actor_id=actor.id,
+                actor_role=actor.role.value,
+                agent="Guardrails",
+                request_id=request_id,
+                input_data=combined_text,
+                output_data={"injection_detected": True, "pattern": pattern},
+                status="FLAGGED_INJECTION",
+                reason=f"Prompt injection pattern detected in request: '{pattern}'",
+            )
+
+        sanitized_req = dict(req)
+        sanitized_req["title"] = sanitize_input(req.get("title", ""))
+        sanitized_req["description"] = sanitize_input(req.get("description", ""))
+
         try:
-            llm_res = self.review_agent.run(req)
+            llm_res = self.review_agent.run(sanitized_req)
+            rec_dict = llm_res.data.model_dump()
+
+            # Defense in depth: Force injection_suspected flag if guardrail matched
+            if injection_flag:
+                rec_dict["injection_suspected"] = True
+
+            # Output filter: Prevent system prompt leakage
+            rec_dict["summary"] = filter_prompt_leakage(rec_dict.get("summary", ""))
+            rec_dict["reasoning"] = filter_prompt_leakage(rec_dict.get("reasoning", ""))
+
             self.audit.log_event(
                 actor_id=actor.id,
                 actor_role=actor.role.value,
                 agent="ReviewAssistAgent",
                 request_id=request_id,
                 input_data={"request_id": req["id"], "title": req["title"]},
-                output_data=llm_res.data.model_dump(),
+                output_data=rec_dict,
                 status="SUCCESS",
                 latency_s=llm_res.latency_s,
                 tokens_in=llm_res.tokens_in,
                 tokens_out=llm_res.tokens_out,
             )
-            return {
+
+            result: Dict[str, Any] = {
                 "ok": True,
-                "recommendation": llm_res.data.model_dump(),
+                "recommendation": rec_dict,
                 "request": req,
             }
+
+            if injection_flag or rec_dict.get("injection_suspected"):
+                result["injection_warning"] = (
+                    f"CRITICAL WARNING: Potential prompt injection detected ('{pattern}'). "
+                    "This request contains adversarial instructions attempting to manipulate approvals. "
+                    "Exercise caution and review manually."
+                )
+
+            return result
         except LLMUnavailableError as err:
             self.audit.log_event(
                 actor_id=actor.id,
