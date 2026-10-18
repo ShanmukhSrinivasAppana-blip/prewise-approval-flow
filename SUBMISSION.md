@@ -8,7 +8,7 @@
 
 ## 🔗 External Links
 
-- **GitHub Repository URL:** `<add link>` (e.g., `https://github.com/your-username/prewise-approval-flow`)
+- **GitHub Repository URL:** `https://github.com/ShanmukhSrinivasAppana-blip/prewise-approval-flow`
 - **Walkthrough Demo Video:** `<add link>` (e.g., Loom / YouTube unlisted link)
 
 ---

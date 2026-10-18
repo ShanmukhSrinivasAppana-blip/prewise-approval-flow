@@ -17,8 +17,8 @@ A production-grade, modular, and hardened Agentic AI workflow automation system 
 
 ```powershell
 # 1. Clone & enter project folder
-git clone <repo-url>
-cd "prewise project"
+git clone https://github.com/ShanmukhSrinivasAppana-blip/prewise-approval-flow.git
+cd "prewise-approval-flow"
 
 # 2. Create and activate virtual environment
 python -m venv .venv
