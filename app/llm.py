@@ -335,7 +335,13 @@ def call_llm_json(
                     exc,
                 )
                 if attempt < max_retries:
-                    sleep_time = backoff_factor * (2 ** (attempt - 1))
+                    err_msg = str(exc).upper()
+                    if "429" in err_msg or "RESOURCE_EXHAUSTED" in err_msg:
+                        # Dedicated rate-limit backoff for Gemini free-tier limits
+                        sleep_time = max(5.0 * attempt, backoff_factor * (2 ** (attempt - 1)))
+                        logger.info("Rate limit hit (429). Backing off for %.1fs...", sleep_time)
+                    else:
+                        sleep_time = backoff_factor * (2 ** (attempt - 1))
                     sleep_fn(sleep_time)
 
     raise LLMUnavailableError(

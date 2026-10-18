@@ -185,10 +185,12 @@ def run_evaluation() -> Dict[str, Any]:
     overall_accuracy = (total_passed / total_cases * 100.0) if total_cases > 0 else 0.0
     avg_latency = sum(r["latency_s"] for r in results) / total_cases if total_cases > 0 else 0.0
     avg_cost = sum(r["cost_usd"] for r in results) / total_cases if total_cases > 0 else 0.0
+    active_model = os.getenv("GEMINI_MODEL", "gemini-3.8-flash") if provider == "gemini" else "offline_mock"
 
     eval_payload = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "provider": provider,
+        "model": active_model,
         "total_cases": total_cases,
         "total_passed": total_passed,
         "total_failed": total_failed,
@@ -224,6 +226,7 @@ def generate_markdown_report(data: Dict[str, Any], output_path: Path) -> None:
         "",
         f"**Date:** `{data['timestamp']}`  ",
         f"**LLM Provider:** `{data['provider']}`  ",
+        f"**LLM Model:** `{data.get('model', 'N/A')}`  ",
         f"**Overall Accuracy:** `{data['accuracy_percent']}%` ({data['total_passed']}/{data['total_cases']})  ",
         f"**Average Latency:** `{data['avg_latency_s']}s`  ",
         f"**Average Cost per Request:** `${data['avg_cost_usd']:.6f}`  ",
