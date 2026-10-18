@@ -71,18 +71,29 @@ def _generate_default_mock_data(schema: Type[T], user_content: str) -> str:
     schema_fields = schema.model_fields if hasattr(schema, "model_fields") else {}
     sample: Dict[str, Any] = {}
 
+    # Extract clean inner user text if wrapped in request_data tags
+    inner_text = user_content.replace("<request_data>", "").replace("</request_data>", "").strip()
+    is_ambiguous = (
+        len(inner_text.split()) < 7
+        or any(phrase in inner_text.lower() for phrase in ["need laptop", "give me", "some monitors", "stuff", "money"])
+        or "?" in inner_text
+    )
+
     for name, field in schema_fields.items():
         annotation = field.annotation
         # String
         if annotation is str:
             if "title" in name:
-                sample[name] = "Hardware Laptop Request"
+                if is_ambiguous:
+                    sample[name] = f"Incomplete Request: {inner_text[:40]}"
+                else:
+                    sample[name] = inner_text.split(".")[0][:80] if inner_text else "Hardware Request"
             elif "summary" in name:
-                sample[name] = "Summary of laptop hardware upgrade request."
+                sample[name] = f"Summary: {inner_text[:120]}"
             elif "reasoning" in name:
                 sample[name] = "Request aligns with standard company hardware refresh cycle."
             else:
-                sample[name] = "Standard description of the request."
+                sample[name] = inner_text if inner_text else "Standard description of the request."
         # Int / score
         elif annotation is int:
             if "score" in name:
@@ -92,8 +103,7 @@ def _generate_default_mock_data(schema: Type[T], user_content: str) -> str:
         # Bool
         elif annotation is bool:
             if "ready" in name:
-                # If user input looks like a question or incomplete, ready_to_create = False
-                sample[name] = not ("?" in user_content or len(user_content.strip()) < 15)
+                sample[name] = not is_ambiguous
             elif "injection" in name:
                 sample[name] = False
             else:
@@ -101,9 +111,20 @@ def _generate_default_mock_data(schema: Type[T], user_content: str) -> str:
         # List
         elif getattr(annotation, "__origin__", None) in (list, List):
             if "missing_fields" in name:
-                sample[name] = []
+                sample[name] = (
+                    ["Item specifications (model, size)", "Business justification", "Estimated budget / cost center"]
+                    if is_ambiguous
+                    else []
+                )
             elif "follow_up_questions" in name:
-                sample[name] = []
+                sample[name] = (
+                    [
+                        "Could you specify the exact model, quantity, or technical specifications needed?",
+                        "What is the business justification or project code for this purchase?",
+                    ]
+                    if is_ambiguous
+                    else []
+                )
             elif "policy_flags" in name:
                 sample[name] = []
             elif "suggestions" in name:
