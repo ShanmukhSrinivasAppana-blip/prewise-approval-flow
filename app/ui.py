@@ -12,6 +12,16 @@ Demonstrates the core principle:
 from datetime import datetime
 import os
 from pathlib import Path
+import sys
+
+# Ensure project root is always on sys.path regardless of execution directory
+_project_root = Path(__file__).resolve().parent.parent
+if str(_project_root) not in sys.path:
+    sys.path.insert(0, str(_project_root))
+
+from dotenv import load_dotenv
+load_dotenv()
+
 import streamlit as st
 
 from app.audit import AuditLogger
