@@ -333,7 +333,7 @@ else:
                     st.write(f"**Request ID:** `{req['id']}`")
                     st.write(f"**Creator:** `{req['creator_id']}`")
                     st.write(f"**Description:** {req['description']}")
-                    st.write(f"**Submitted At:** {req['created_at']}")
+                    st.write(f"**Submitted At:** {req.get('updated_at') or req['created_at']}")
 
                     st.markdown("---")
                     # Review Assist Button
@@ -349,6 +349,13 @@ else:
                     if f"rec_data_{req['id']}" in st.session_state:
                         rec_res = st.session_state[f"rec_data_{req['id']}"]
                         rec = rec_res["recommendation"]
+
+                        # Check for fallback provider banner
+                        if rec_res.get("fallback_used") or rec_res.get("provider") == "mock":
+                            st.warning(
+                                "⚠️ **Fallback / Mock Provider Used:** Primary AI model was unavailable or offline fallback was activated. "
+                                "This recommendation was generated offline by a mock provider. Please review the request details manually."
+                            )
 
                         # Check for injection warning banner
                         if rec_res.get("injection_warning") or rec.get("injection_suspected"):

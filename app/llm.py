@@ -119,13 +119,13 @@ def _generate_default_mock_data(schema: Type[T], user_content: str) -> str:
             elif "summary" in name:
                 sample[name] = f"Summary: {inner_text[:120]}"
             elif "reasoning" in name:
-                sample[name] = "Request aligns with standard company hardware refresh cycle."
+                sample[name] = "Advisory assessment generated offline by mock provider. Manual human review required."
             else:
                 sample[name] = inner_text if inner_text else "Standard description of the request."
         # Int / score
         elif annotation is int:
             if "score" in name:
-                sample[name] = 4
+                sample[name] = 3
             else:
                 sample[name] = 1
         # Bool
@@ -166,7 +166,11 @@ def _generate_default_mock_data(schema: Type[T], user_content: str) -> str:
             # Check for Literal values
             args = getattr(annotation, "__args__", None)
             if args:
-                sample[name] = args[0]
+                if name == "recommendation":
+                    # Never default to 'approve' in mock fallback to prevent fake automated approvals
+                    sample[name] = "needs_info"
+                else:
+                    sample[name] = args[0]
             else:
                 sample[name] = "medium"
 

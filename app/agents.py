@@ -27,20 +27,27 @@ def _wrap_request_data(content: str) -> str:
 
 
 class IntakeAgent:
-    """Agent that converses with the Creator to gather request details and formulate a clean draft."""
+    """Agent that converses with the Creator to gather request details and formulate a clean draft.
+    
+    Architectural Pattern:
+    LLM proposes structured output, orchestrator executes through a least-privilege tool layer.
+    """
 
-    def __init__(self, system_prompt: str = INTAKE_SYSTEM_PROMPT) -> None:
+    def __init__(self, system_prompt: str = INTAKE_SYSTEM_PROMPT, tools: Optional[Any] = None) -> None:
         self.system_prompt = system_prompt
+        self.tools = tools
 
-    def run(self, user_input: str) -> LLMResult:
+    def run(self, user_input: str, tools: Optional[Any] = None) -> LLMResult:
         """Analyze user input and extract structured intake information.
 
         Args:
             user_input: Raw text provided by the Creator.
+            tools: Optional IntakeTools instance.
 
         Returns:
             LLMResult containing validated IntakeOutput schema.
         """
+        active_tools = tools or self.tools
         wrapped_data = _wrap_request_data(user_input)
         return call_llm_json(
             system_prompt=self.system_prompt,
@@ -75,24 +82,43 @@ class QualityCheckAgent:
 
 
 class ReviewAssistAgent:
-    """Agent that provides executive summaries, risk scores, and advisory recommendations to human approvers."""
+    """Agent that provides executive summaries, risk scores, and advisory recommendations to human approvers.
+    
+    Architectural Pattern:
+    LLM proposes structured output, orchestrator executes through a least-privilege tool layer.
+    """
 
-    def __init__(self, system_prompt: str = REVIEW_ASSIST_SYSTEM_PROMPT) -> None:
+    def __init__(self, system_prompt: str = REVIEW_ASSIST_SYSTEM_PROMPT, tools: Optional[Any] = None) -> None:
         self.system_prompt = system_prompt
+        self.tools = tools
 
-    def run(self, request_data: Dict[str, Any]) -> LLMResult:
+    def run(self, request_data: Any, tools: Optional[Any] = None) -> LLMResult:
         """Assess a submitted request and produce an advisory recommendation for the Reviewer.
 
         Args:
-            request_data: Dictionary containing title, description, creator_id, etc.
+            request_data: Dictionary containing request details OR request_id string.
+            tools: Optional ReviewAssistTools instance for reading requests.
 
         Returns:
             LLMResult containing validated ReviewAssistOutput schema.
         """
-        title = request_data.get("title", "")
-        description = request_data.get("description", "")
-        creator_id = request_data.get("creator_id", "")
-        req_id = request_data.get("id", "")
+        active_tools = tools or self.tools
+        req_dict: Dict[str, Any] = {}
+
+        if isinstance(request_data, str) and active_tools:
+            # Use least-privilege tool to fetch request data
+            fetched = active_tools.dispatch("get_request", {"request_id": request_data})
+            if fetched.get("ok"):
+                req_dict = fetched.get("request", {})
+            else:
+                req_dict = {"id": request_data}
+        elif isinstance(request_data, dict):
+            req_dict = request_data
+
+        title = req_dict.get("title", "")
+        description = req_dict.get("description", "")
+        creator_id = req_dict.get("creator_id", "")
+        req_id = req_dict.get("id", "")
 
         content = (
             f"Request ID: {req_id}\n"
@@ -107,3 +133,4 @@ class ReviewAssistAgent:
             user_content=wrapped_data,
             schema=ReviewAssistOutput,
         )
+

@@ -19,8 +19,10 @@ from app.llm import LLMUnavailableError
 from app.notifications import NotificationManager
 from app.rules import Role, Status
 from app.service import ErrorCode, RequestService, User
+from app.tools import IntakeTools, ReviewAssistTools
 
 logger = logging.getLogger(__name__)
+
 
 
 class Orchestrator:
@@ -118,12 +120,21 @@ class Orchestrator:
 
         intake_data = llm_res.data
 
-        # If sufficient info is present, the Orchestrator creates the draft
+        # If sufficient info is present, execute draft creation through the least-privilege tool layer
         if intake_data.ready_to_create:
-            create_res = self.service.create_request(
-                actor=actor,
-                title=intake_data.title,
-                description=intake_data.description,
+            intake_tools = IntakeTools(self.service, actor)
+            create_res = intake_tools.dispatch(
+                "create_request",
+                {"title": intake_data.title, "description": intake_data.description},
+            )
+            self.audit.log_event(
+                actor_id=actor.id,
+                actor_role=actor.role.value,
+                agent="IntakeTools",
+                request_id=create_res.get("request", {}).get("id") if create_res.get("ok") else None,
+                input_data={"tool": "create_request", "title": intake_data.title, "description": intake_data.description},
+                output_data={"ok": create_res.get("ok"), "request_id": create_res.get("request", {}).get("id")},
+                status="SUCCESS" if create_res.get("ok") else "FAILED",
             )
             if not create_res["ok"]:
                 return create_res
@@ -144,6 +155,7 @@ class Orchestrator:
                 "llm_result": llm_res,
             }
 
+
         return {
             "ok": True,
             "draft_created": False,
@@ -157,11 +169,13 @@ class Orchestrator:
 
         Advisory only: The Creator may choose to accept suggestions or submit as is.
         """
-        get_res = self.service.get_request(actor, request_id)
+        tools = IntakeTools(self.service, actor)
+        get_res = tools.dispatch("get_request", {"request_id": request_id})
         if not get_res["ok"]:
             return get_res
 
         req = get_res["request"]
+
 
         try:
             llm_res = self.quality_agent.run(title=req["title"], description=req["description"])
@@ -232,12 +246,23 @@ class Orchestrator:
         CRITICAL ARCHITECTURAL BOUNDARY:
         This method NEVER transitions or mutates request status.
         """
-        # Enforce visibility and existence
-        get_res = self.service.get_request(actor, request_id)
+        # Enforce visibility and existence through least-privilege review assist toolbox (strictly read-only)
+        review_tools = ReviewAssistTools(self.service, actor)
+        get_res = review_tools.dispatch("get_request", {"request_id": request_id})
+        self.audit.log_event(
+            actor_id=actor.id,
+            actor_role=actor.role.value,
+            agent="ReviewAssistTools",
+            request_id=request_id,
+            input_data={"tool": "get_request", "request_id": request_id},
+            output_data={"ok": get_res.get("ok")},
+            status="SUCCESS" if get_res.get("ok") else "FAILED",
+        )
         if not get_res["ok"]:
             return get_res
 
         req = get_res["request"]
+
 
         # Only Submitted requests are eligible for reviewer assist
         if req["status"] != Status.SUBMITTED.value:
@@ -301,16 +326,21 @@ class Orchestrator:
                 "regex_caught": injection_flag,
                 "llm_caught": llm_injection_flag,
                 "llm_result": llm_res,
+                "fallback_used": getattr(llm_res, "fallback_used", False),
+                "provider": getattr(llm_res, "provider", "unknown"),
+                "model": getattr(llm_res, "model", "unknown"),
             }
 
             if injection_flag or rec_dict.get("injection_suspected"):
+                matched = pattern or "semantic detection by LLM"
                 result["injection_warning"] = (
-                    f"CRITICAL WARNING: Potential prompt injection detected ('{pattern}'). "
+                    f"CRITICAL WARNING: Potential prompt injection detected ('{matched}'). "
                     "This request contains adversarial instructions attempting to manipulate approvals. "
                     "Exercise caution and review manually."
                 )
 
             return result
+
         except LLMUnavailableError as err:
             self.audit.log_event(
                 actor_id=actor.id,
@@ -453,11 +483,12 @@ class Orchestrator:
         now = datetime.now(timezone.utc)
 
         for req in submitted_res["requests"]:
-            created_at_str = req["created_at"]
+            timestamp_str = req.get("updated_at") or req["created_at"]
             try:
-                created_dt = datetime.fromisoformat(created_at_str)
-                age_hours = (now - created_dt).total_seconds() / 3600.0
+                submitted_dt = datetime.fromisoformat(timestamp_str)
+                age_hours = (now - submitted_dt).total_seconds() / 3600.0
                 if age_hours >= threshold_hours:
+
                     self.notifications.notify(
                         recipient_id="all_reviewers",
                         message=(

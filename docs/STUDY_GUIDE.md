@@ -51,8 +51,11 @@ This comprehensive guide is designed to help you explain every architectural dec
 - **What it does:** Defines `ToolBox`, `IntakeTools`, and `ReviewAssistTools`. Dispatches tool calls validated by Pydantic.
 - **Why it exists:** Enforces **Least Privilege** and secure **Actor Injection**.
 - **Rules Enforced:**
-  - Actor is injected in Python code; any LLM attempt to pass `actor` or `actor_id` is stripped.
+  - Architectural Pattern: *LLM proposes structured output, orchestrator executes through a least-privilege tool layer (`IntakeTools.dispatch`, `ReviewAssistTools.dispatch`).*
+  - Actor is injected in Python code; any attempt to pass `actor` or `actor_id` in tool parameters is stripped.
+  - `IntakeTools` permits ONLY `create_request` and `get_request`.
   - `ReviewAssistTools` contains ONLY `get_request`. It physically lacks approval or mutation methods, making automated takeover impossible.
+
 
 ### 7. `app/agents.py`
 - **What it does:** Implements `IntakeAgent`, `QualityCheckAgent`, and `ReviewAssistAgent`.
@@ -137,10 +140,11 @@ This comprehensive guide is designed to help you explain every architectural dec
 **Answer:** *"Streamlit runs user sessions across multiple background threads. SQLite connections by default restrict access to the creating thread. Using `check_same_thread=False` paired with a Python `threading.Lock()` provides thread safety, preventing database corruption during concurrent interactions."*
 
 ### Q13: What is the purpose of the Escalation Daemon?
-**Answer:** *"To enforce enterprise SLAs. The function `check_auto_escalation(threshold_hours=24.0)` queries all `Submitted` requests, checks if their pending duration exceeds 24 hours, and automatically triggers high-priority escalation notifications to reviewers and logs an audit event."*
+**Answer:** *"To enforce enterprise SLAs. The function `check_auto_escalation(threshold_hours=24.0)` queries all `Submitted` requests, measures their pending duration using `req['updated_at']` (which records the exact timestamp of submission), and automatically triggers high-priority escalation notifications to reviewers and logs an audit event if pending time exceeds the SLA threshold."*
 
 ### Q14: How does your test suite guarantee system reliability?
-**Answer:** *"We maintain 59 comprehensive unit tests across five test suites covering 100% of the deterministic business rules, state transitions, least-privilege boundaries, LLM retries, fallback paths, and guardrail defenses. Additionally, an evaluation harness tests 19 end-to-end synthetic scenarios against the real orchestrator."*
+**Answer:** *"We maintain 63 comprehensive unit tests across five test suites covering 100% of the deterministic business rules, state transitions, least-privilege toolboxes, LLM retries, fallback paths, and guardrail defenses. Additionally, an evaluation harness tests 26 standardized benchmark scenarios against the real orchestrator, including benign false-positive testing."*
+
 
 ### Q15: If this system were deployed to production with 10,000 users, what would you upgrade first?
 **Answer:** *"First, replace SQLite with PostgreSQL using connection pooling and row-level locking. Second, replace synthetic user switching with OAuth2/OIDC JWT authentication. Third, run agent reasoning tasks asynchronously using Celery or AWS SQS to prevent HTTP timeouts during LLM latency spikes."*

@@ -112,12 +112,13 @@ The evaluation harness was executed in a single run against **Google Gemini (`ge
 ## 🛡️ Multi-Layer Guardrails & Security
 
 1. **Least-Privilege Toolboxes:**
+   - Architectural Pattern: *LLM proposes structured output, orchestrator executes through a least-privilege tool layer (`IntakeTools.dispatch`, `ReviewAssistTools.dispatch`).*
    - `ReviewAssistTools` contains ONLY `get_request`. It physically lacks any mutation or approval methods. Even if an LLM is hijacked via prompt injection, it cannot approve requests.
 2. **Actor Injection:**
-   - The authenticated `User` object is injected in backend Python code. Any parameters matching `actor`, `actor_id`, or `role` passed by an LLM are automatically stripped.
+   - The authenticated `User` object is injected in backend Python code. Any parameters matching `actor`, `actor_id`, or `role` passed by an LLM or prompt injection are automatically stripped.
 3. **Regex Prompt Injection Detection:**
    - Detects adversarial patterns (*"ignore rules"*, *"approve this"*, *"system prompt"*, *"override checks"*).
-   - Automatically forces `injection_suspected: True` and renders a prominent red warning banner for the human reviewer.
+   - Automatically forces `injection_suspected: True` and renders a prominent red warning banner for the human reviewer. If caught semantically by the LLM only, the banner specifically indicates `'semantic detection by LLM'`.
 4. **Delimiter Sanitization:**
    - All untrusted input is enclosed within `<request_data>` tags.
    - Any attempted closing tag `</request_data>` is stripped to prevent boundary breakout.
@@ -128,9 +129,10 @@ The evaluation harness was executed in a single run against **Google Gemini (`ge
 
 ## ⚠️ Known Architectural Weak Spots & Honest Limitations
 
-1. **Regex Injection Detection is Bypassable:**
-   - **Weak Spot:** Static keyword scanning only caught 3 of 6 injection attacks (`INJ-01`, `INJ-02`, `INJ-03`). Paraphrased instructions (`INJ-04`), multi-lingual attacks (`INJ-05`), and split-sentence attacks (`INJ-06`) bypass regex pattern filters.
-   - **Mitigation:** The secondary LLM semantic evaluation caught the remaining 3 attacks. Most importantly, **100% containment is guaranteed by physical architecture**: the Review-Assist Agent has no mutation tools and cannot alter database status.
+1. **Regex Injection Detection: Bypassability vs. False Positives:**
+   - **Weak Spot (False Negatives):** Static keyword scanning only caught 3 of 6 injection attacks (`INJ-01`, `INJ-02`, `INJ-03`). Paraphrased instructions (`INJ-04`), multi-lingual attacks (`INJ-05`), and split-sentence attacks (`INJ-06`) bypass regex pattern filters and require secondary LLM semantic evaluation.
+   - **Weak Spot (False Positives):** Simple keyword regexes like `approve\s+this` trigger false positives on polite natural human phrasing (e.g., *"Please approve this purchase"* or *"Kindly approve this request"*). We added 3 benign benchmark cases (`BEN-01` to `BEN-03`) to empirically measure this false positive rate.
+   - **Mitigation & Architectural Guarantee:** In this architecture, false positive alerts merely display a cautionary banner to the human reviewer; they **never** alter database status or approve requests. Crucially, **100% containment is guaranteed by physical architecture**: the Review-Assist Agent has no mutation tools and cannot alter database status under any circumstances.
 2. **UI Persona Switcher is Not Real Authentication:**
    - **Weak Spot:** The Streamlit sidebar user selector (`Alice`, `Bob`, `Rita`) is a client-side simulation designed for interactive evaluation and demonstration.
    - **Production Requirement:** In production, identity must be validated at the API boundary via signed OAuth2 / OIDC JWT bearer tokens (Okta, Azure AD), securely injecting authenticated `User` context.
@@ -139,7 +141,7 @@ The evaluation harness was executed in a single run against **Google Gemini (`ge
    - **Information Disclosure Vector:** A caller querying nonexistent ID `999` receives `NOT_FOUND`, but querying Alice's private draft `1` receives `NOT_VISIBLE`. This allows an unauthorized user to probe whether specific request IDs exist.
    - **Production Requirement:** Enforce authorization within the database query itself (`WHERE id = ? AND owner_id = ?`) or return a uniform `NOT_FOUND` to prevent ID enumeration.
 4. **Database Scale:** SQLite provides excellent single-node performance and ACID guarantees via file locks, but multi-region distributed deployments should migrate to PostgreSQL with row-level locks.
-5. **Escalation Daemon:** The SLA escalation daemon currently operates via API/button trigger; in production, run it as a background cron job (e.g., Celery beat or AWS EventBridge).
+5. **Escalation Daemon:** The SLA escalation daemon measures pending age from submission time (`updated_at`); in production, run it as a standing background worker (e.g., Celery beat or AWS EventBridge).
 
 ---
 
@@ -166,16 +168,16 @@ The evaluation harness was executed in a single run against **Google Gemini (`ge
 │   ├── DEMO_SCRIPT.md     # Walkthrough demonstration script
 │   └── STUDY_GUIDE.md     # File-by-file explanations and 15 interview defense Q&As
 ├── eval/
-│   ├── cases.py           # 23 synthetic evaluation cases (happy, ambiguous, injections, edge cases)
+│   ├── cases.py           # 26 synthetic evaluation cases (happy, ambiguous, injections, edge cases, benign checks)
 │   ├── run_eval.py        # Evaluation runner with token cost and latency telemetry
 │   ├── results.json       # Raw evaluation metrics output
 │   └── EVAL_REPORT.md     # Formatted markdown evaluation report
 ├── tests/
 │   ├── test_service.py    # 26 unit tests for backend state machine and rules
 │   ├── test_llm.py        # 5 unit tests for LLM retry, schema, and fallback
-│   ├── test_tools.py      # 7 unit tests for least-privilege toolboxes
+│   ├── test_tools.py      # 8 unit tests for least-privilege toolboxes and function declarations
 │   ├── test_agents.py     # 8 unit tests for schemas, prompts, and agents
-│   ├── test_orchestrator.py # 8 unit tests for orchestrator, checkpoints, SLA
+│   ├── test_orchestrator.py # 12 unit tests for orchestrator, checkpoints, SLA, fallback, tools
 │   └── test_guardrails.py # 5 unit tests for injection detection and sanitization
 ├── requirements.txt       # Project dependencies
 ├── .env.example           # Configuration template

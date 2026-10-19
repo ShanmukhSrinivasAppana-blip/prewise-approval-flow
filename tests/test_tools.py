@@ -125,6 +125,19 @@ class TestToolBoxSecurity(unittest.TestCase):
         self.assertFalse(res["ok"])
         self.assertEqual(res["error"]["code"], "TOOL_NOT_ALLOWED")
 
+    def test_tool_declarations_expose_least_privilege_schemas(self) -> None:
+        """get_tool_declarations exposes correct function calling declarations."""
+        intake_decls = IntakeTools.get_tool_declarations()
+        intake_names = {d["name"] for d in intake_decls}
+        self.assertEqual(intake_names, {"create_request", "get_request"})
+
+        review_decls = ReviewAssistTools.get_tool_declarations()
+        review_names = {d["name"] for d in review_decls}
+        self.assertEqual(review_names, {"get_request"})
+        self.assertNotIn("transition_request", review_names)
+        self.assertNotIn("create_request", review_names)
+
+
 
 if __name__ == "__main__":
     unittest.main()

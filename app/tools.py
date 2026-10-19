@@ -164,11 +164,31 @@ class ToolBox:
 
 
 class IntakeTools(ToolBox):
-    """Least-privilege toolbox for intake operations: create and read only."""
+    """Least-privilege toolbox for intake operations: create and read only.
+    
+    Architectural Pattern:
+    LLM proposes structured output, orchestrator executes through a least-privilege tool layer.
+    """
 
     @property
     def allowed_tools(self) -> Set[str]:
         return {"create_request", "get_request"}
+
+    @classmethod
+    def get_tool_declarations(cls) -> list[Dict[str, Any]]:
+        """Return function calling declarations for Intake operations."""
+        return [
+            {
+                "name": "create_request",
+                "description": "Create a new draft request in the approval system under the authenticated creator's identity.",
+                "parameters": CreateRequestArgs.model_json_schema(),
+            },
+            {
+                "name": "get_request",
+                "description": "Retrieve request details by ID respecting creator visibility rules.",
+                "parameters": GetRequestArgs.model_json_schema(),
+            },
+        ]
 
 
 class ReviewAssistTools(ToolBox):
@@ -177,8 +197,23 @@ class ReviewAssistTools(ToolBox):
     Crucial Architectural Invariant:
     This toolbox contains NO transition tools whatsoever. Even if an LLM is compromised
     via prompt injection, it physically cannot approve, reject, submit, or cancel requests.
+
+    Architectural Pattern:
+    LLM proposes structured output, orchestrator executes through a least-privilege tool layer.
     """
 
     @property
     def allowed_tools(self) -> Set[str]:
         return {"get_request"}
+
+    @classmethod
+    def get_tool_declarations(cls) -> list[Dict[str, Any]]:
+        """Return function calling declarations for Review Assist operations (strictly read-only)."""
+        return [
+            {
+                "name": "get_request",
+                "description": "Retrieve request details by ID respecting reviewer visibility rules. Strictly read-only.",
+                "parameters": GetRequestArgs.model_json_schema(),
+            },
+        ]
+

@@ -51,14 +51,19 @@ flowchart TD
     OrchestratorCore -->|"Wrapped &lt;request_data&gt;"| QualityAgent
     OrchestratorCore -->|"Wrapped &lt;request_data&gt;"| ReviewAgent
 
-    %% Agents & Toolboxes
-    IntakeAgent -.->|"Read & Create Draft"| IntakeTools
-    ReviewAgent -.->|"Read Only"| ReviewTools
+    %% Agents & Toolboxes (Least-Privilege Execution)
+    IntakeAgent -.->|"Proposes Structured Draft"| OrchestratorCore
+    ReviewAgent -.->|"Advisory Assessment"| OrchestratorCore
+    OrchestratorCore -->|"dispatch('create_request')"| IntakeTools
+    OrchestratorCore -->|"dispatch('get_request')"| ReviewTools
+    IntakeTools -->|"create_request"| Service
+    ReviewTools -->|"get_request"| Service
 
-    %% Orchestrator to State Machine
+    %% Orchestrator to State Machine (Human Transitions Only)
     OrchestratorCore -->|"transition_request(actor, id, action)"| Service
     Service --> Rules
     Service --> SQLiteDB
+
 
     %% Observability taps
     OrchestratorCore -->|"Log every event"| AuditLog

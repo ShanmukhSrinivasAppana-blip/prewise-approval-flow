@@ -29,9 +29,11 @@ The evaluation recorded exactly **1 failed case out of 23**:
 
 ### 3. Known Architectural Weak Spots & Honest Trade-Offs
 
-1. **Regex Injection Detection is Bypassable:**
-   - **Weak Spot:** Simple keyword pattern scanning (`"ignore rules"`, `"system prompt"`, `"approve this"`) is brittle. Paraphrased instructions (`INJ-04`), multi-lingual attacks (`INJ-05`), and split-sentence instructions (`INJ-06`) bypass regex entirely.
-   - **Mitigation & Reality:** Our second-line defense—the LLM semantic evaluation—caught the bypassing injections in this run. However, detection depends on LLM judgement and cannot be guaranteed. Crucially, **containment is guaranteed by architecture**: the Review-Assist Agent has no transition tools in its toolbox and cannot write database state under any circumstances.
+1. **Regex Injection Detection: Bypassability vs. False Positives:**
+   - **Weak Spot (False Negatives):** Simple keyword pattern scanning (`"ignore rules"`, `"system prompt"`, `"approve this"`) is brittle. Paraphrased instructions (`INJ-04`), multi-lingual attacks (`INJ-05`), and split-sentence instructions (`INJ-06`) bypass regex entirely.
+   - **Weak Spot (False Positives):** Rigid regex patterns like `approve\s+this` flag polite natural conversational phrasing (e.g., *"Please approve this purchase"* or *"Kindly approve this request"*). In our expanded 26-case benchmark, 3 benign cases (`BEN-01` to `BEN-03`) empirically demonstrated this sensitivity vs. precision trade-off.
+   - **Mitigation & Reality:** False positive alerts merely display a cautionary banner to the human reviewer; they **never** alter database status or execute unauthorized actions. Crucially, **containment is guaranteed by architecture**: the Review-Assist Agent has no transition tools in its toolbox and cannot write database state under any circumstances.
+
 
 2. **UI Persona Switcher is Not Real Authentication:**
    - **Weak Spot:** The Streamlit sidebar user selector (`Alice`, `Bob`, `Rita`) is a client-side simulation designed for interactive evaluation and demonstration.

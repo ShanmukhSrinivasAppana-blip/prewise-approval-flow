@@ -64,11 +64,15 @@ flowchart TD
     OrchestratorCore -->|"Wrapped &lt;request_data&gt;"| QualityAgent
     OrchestratorCore -->|"Wrapped &lt;request_data&gt;"| ReviewAgent
 
-    %% Agents & Toolboxes
-    IntakeAgent -.->|"Read & Create Draft"| IntakeTools
-    ReviewAgent -.->|"Read Only"| ReviewTools
+    %% Agents & Toolboxes (Least-Privilege Execution)
+    IntakeAgent -.->|"Proposes Structured Draft"| OrchestratorCore
+    ReviewAgent -.->|"Advisory Assessment"| OrchestratorCore
+    OrchestratorCore -->|"dispatch('create_request')"| IntakeTools
+    OrchestratorCore -->|"dispatch('get_request')"| ReviewTools
+    IntakeTools -->|"create_request"| Service
+    ReviewTools -->|"get_request"| Service
 
-    %% Orchestrator to State Machine
+    %% Orchestrator to State Machine (Human Transitions Only)
     OrchestratorCore -->|"transition_request(actor, id, action)"| Service
     Service --> Rules
     Service --> SQLiteDB
@@ -125,12 +129,14 @@ stateDiagram-v2
 ## 3. Security Boundaries and Invariants
 
 1. **The AI Suggests; A Deterministic Backend Decides:**
-   - Agents output pure structured Pydantic schemas.
+   - **Architectural Design:** *LLM proposes structured output, orchestrator executes through a least-privilege tool layer.*
+   - `IntakeTools` enforces access exclusively to `create_request` and `get_request`.
    - Status changes require an explicit call to `transition_request` by an authenticated human user.
-2. **Actor Injection:**
-   - The `User` object is frozen and injected by Python backend code.
-   - If an agent or client attempts to pass `actor` or `actor_id` in tool parameters, it is discarded.
+2. **Actor Injection & Tool Dispatch:**
+   - The `User` object is frozen and injected by Python backend code into `IntakeTools` and `ReviewAssistTools`.
+   - If an agent, prompt injection, or caller attempts to pass `actor` or `actor_id` in tool parameters, it is stripped and discarded by `ToolBox.dispatch()`.
 3. **Physical Capability Restriction:**
-   - `ReviewAssistTools` contains only `get_request`. Even if an adversary completely hijacks the LLM via prompt injection, the LLM physically lacks any tool to approve or alter status.
+   - `ReviewAssistTools` contains only `get_request` (read-only). Even if an adversary completely hijacks the LLM via prompt injection, the tool layer physically lacks any tool to approve, reject, or alter database status.
 4. **Mandatory Human-in-the-Loop Checkpoint:**
-   - The final transition to `Approved` or `Rejected` requires a human Reviewer to supply a non-empty textual justification.
+   - The final transition to `Approved` or `Rejected` requires an authenticated human Reviewer to supply a non-empty textual justification.
+
